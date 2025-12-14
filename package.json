@@ -1,0 +1,52 @@
+{
+  "name": "payway-ts",
+  "version": "0.1.0",
+  "description": "A non-official TypeScript SDK for ABA PayWay - Server-side only",
+  "license": "MIT",
+  "author": "tykealy",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aba",
+    "payway",
+    "payment",
+    "cambodia",
+    "typescript",
+    "sdk",
+    "aba-bank"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "date-fns": "^2.30.0",
+    "formdata-node": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15"
+  }
+}
