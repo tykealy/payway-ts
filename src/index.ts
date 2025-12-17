@@ -2,6 +2,9 @@
  * PayWay TypeScript SDK
  * An unofficial TypeScript client for ABA PayWay payment gateway
  * 
+ * This SDK builds request payloads with HMAC-SHA512 signatures.
+ * It does NOT make HTTP requests directly.
+ * 
  * @packageDocumentation
  */
 
@@ -10,9 +13,10 @@ export { trim } from "./utils.js";
 export type {
   TransactionStatus,
   PaymentOption,
+  ViewType,
   CreateTransactionParams,
   CheckTransactionParams,
   TransactionListParams,
-  ClientFactory,
-  HttpClient,
+  PayloadBuilderResponse,
+  ExecuteOptions,
 } from "./types.js";

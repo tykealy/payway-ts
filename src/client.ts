@@ -1,71 +1,42 @@
 import { format } from "date-fns";
 import { createHmac } from "node:crypto";
-import { FormData } from "formdata-node";
 import { trim } from "./utils.js";
 import type {
   CreateTransactionParams,
   TransactionListParams,
-  ClientFactory,
-  HttpClient,
+  PayloadBuilderResponse,
+  ExecuteOptions,
 } from "./types.js";
 
 /**
  * PayWay API Client for ABA PayWay payment gateway
+ * 
+ * This client builds request payloads with HMAC-SHA512 signatures.
+ * It does NOT make HTTP requests - you use the returned payload to:
+ * 1. Create an HTML form on the client-side, OR
+ * 2. Make server-to-server API calls
+ * 
  * @class PayWayClient
  */
 export class PayWayClient {
   public readonly base_url: string;
   public readonly merchant_id: string;
   public readonly api_key: string;
-  public _client: HttpClient | any;
 
   /**
    * Creates a new PayWayClient instance
    * @param base_url - Base URL of the PayWay API (e.g., https://checkout-sandbox.payway.com.kh/)
    * @param merchant_id - Your merchant ID from ABA Bank
    * @param api_key - Your API key from ABA Bank
-   * @param client_factory - Optional custom HTTP client factory function
    */
   constructor(
     base_url: string,
     merchant_id: string,
-    api_key: string,
-    client_factory?: ClientFactory
+    api_key: string
   ) {
     this.base_url = base_url;
     this.merchant_id = merchant_id;
     this.api_key = api_key;
-
-    if (typeof client_factory === "function") {
-      this._client = client_factory(this);
-    } else {
-      // Create a default fetch-based client similar to axios
-      this._client = this.createDefaultClient();
-    }
-  }
-
-  /**
-   * Creates a default HTTP client using native fetch API
-   * @private
-   */
-  private createDefaultClient(): HttpClient {
-    const baseURL = this.base_url;
-    
-    return {
-      async post(url: string, data: any) {
-        const response = await fetch(`${baseURL}${url}`, {
-          method: "POST",
-          body: data,
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${JSON.stringify(response, null, 2)}`);
-        }
-
-        const responseData = await response.json();
-        return { data: responseData };
-      },
-    };
   }
 
   /**
@@ -79,12 +50,13 @@ export class PayWayClient {
   }
 
   /**
-   * Creates FormData payload with hash signature
+   * Creates payload fields with hash signature
    * @param body - Request body parameters
    * @param date - Date for the request (defaults to current date)
-   * @returns FormData object ready to be sent
+   * @returns Plain object with all fields including hash
+   * @private
    */
-  create_payload(body: Record<string, any> = {}, date: Date = new Date()): FormData {
+  private create_payload(body: Record<string, any> = {}, date: Date = new Date()): Record<string, string> {
     // Filter out null and undefined values
     body = Object.fromEntries(
       Object.entries(body).filter(([_k, v]) => v != null)
@@ -92,33 +64,69 @@ export class PayWayClient {
 
     const req_time = format(date, "yyyyMMddHHmmss");
     const merchant_id = this.merchant_id;
-    const formData = new FormData();
-    const entries = Object.entries(body);
 
     // Create hash with req_time, merchant_id, and all body values
     const hash = this.create_hash([
       req_time,
       merchant_id,
-      ...Object.values(body),
+      ...Object.values(body).map(String),
     ]);
 
-    formData.append("req_time", req_time);
-    formData.append("merchant_id", merchant_id);
+    // Build fields object
+    const fields: Record<string, string> = {
+      req_time,
+      merchant_id,
+    };
 
-    for (const [key, value] of entries) {
-      formData.append(key, value);
+    // Add all body fields as strings
+    for (const [key, value] of Object.entries(body)) {
+      fields[key] = String(value);
     }
 
-    formData.append("hash", hash);
-    return formData;
+    // Add hash at the end
+    fields.hash = hash;
+
+    return fields;
   }
 
   /**
-   * Creates a new payment transaction
+   * Builds a payment transaction payload
+   * 
+   * Use this to create a client-side form that submits directly to ABA PayWay.
+   * The returned payload contains all fields (including hash) and the URL.
+   * 
    * @param params - Transaction parameters
-   * @returns API response data
+   * @returns Payload with fields, hash, and URL for form submission
+   * 
+   * @example
+   * ```typescript
+   * // Server-side (Next.js API route)
+   * const payload = client.buildTransactionPayload({
+   *   payment_option: "abapay",
+   *   amount: 100,
+   *   tran_id: "ORDER-123",
+   *   return_url: "https://mysite.com/callback"
+   * });
+   * 
+   * // Send to client
+   * return Response.json(payload);
+   * 
+   * // Client-side: Create and submit form
+   * const form = document.createElement('form');
+   * form.method = payload.method;
+   * form.action = payload.url;
+   * for (const [key, value] of Object.entries(payload.fields)) {
+   *   const input = document.createElement('input');
+   *   input.type = 'hidden';
+   *   input.name = key;
+   *   input.value = value;
+   *   form.appendChild(input);
+   * }
+   * document.body.appendChild(form);
+   * form.submit();
+   * ```
    */
-  async create_transaction(params: CreateTransactionParams = {}): Promise<any> {
+  buildTransactionPayload(params: CreateTransactionParams = {}): PayloadBuilderResponse {
     const {
       tran_id,
       payment_option,
@@ -132,6 +140,8 @@ export class PayWayClient {
       lastname,
       email,
       phone,
+      view_type,
+      type,
     } = params;
 
     function base64(d: string): string {
@@ -141,6 +151,7 @@ export class PayWayClient {
     let processedReturnUrl = return_url;
     let processedReturnDeeplink = return_deeplink;
 
+    // Base64 encode return URLs as per PayWay requirements
     if (typeof return_url === "string") {
       processedReturnUrl = base64(return_url);
     }
@@ -153,60 +164,226 @@ export class PayWayClient {
       processedReturnDeeplink = base64(JSON.stringify(return_deeplink));
     }
 
-    const response = await this._client.post(
-      "api/payment-gateway/v1/payments/purchase",
-      // Order matters here for hash generation
-      this.create_payload({
-        tran_id,
-        amount,
-        pwt,
-        firstname: trim(firstname),
-        lastname: trim(lastname),
-        email: trim(email),
-        phone: trim(phone),
-        payment_option,
-        return_url: processedReturnUrl,
-        continue_success_url,
-        return_deeplink: processedReturnDeeplink,
-        currency,
-      })
-    );
+    // Build payload fields (order matters for hash generation)
+    const fields = this.create_payload({
+      tran_id,
+      amount,
+      pwt,
+      firstname: trim(firstname),
+      lastname: trim(lastname),
+      email: trim(email),
+      phone: trim(phone),
+      type,
+      payment_option,
+      return_url: processedReturnUrl,
+      continue_success_url,
+      return_deeplink: processedReturnDeeplink,
+      currency,
+    });
 
-    return response.data;
+    // Add view_type AFTER hash generation (not included in hash)
+    if (view_type != null) {
+      fields.view_type = view_type;
+    }
+    if (type != null) {
+      fields.type = type;
+    }
+
+    return {
+      fields,
+      hash: fields.hash,
+      url: `${this.base_url}api/payment-gateway/v1/payments/purchase`,
+      method: "POST",
+    };
   }
 
   /**
-   * Checks the status of a transaction
+   * Builds a check transaction payload
+   * 
+   * Use this for server-to-server API calls to check transaction status.
+   * 
    * @param tran_id - Transaction ID to check
-   * @returns API response data with transaction status
+   * @returns Payload with fields, hash, and URL
+   * 
+   * @example
+   * ```typescript
+   * const payload = client.buildCheckTransactionPayload("ORDER-123");
+   * 
+   * // Make server-to-server request
+   * const formData = new FormData();
+   * for (const [key, value] of Object.entries(payload.fields)) {
+   *   formData.append(key, value);
+   * }
+   * 
+   * const response = await fetch(payload.url, {
+   *   method: payload.method,
+   *   body: formData
+   * });
+   * const result = await response.json();
+   * ```
    */
-  async check_transaction(tran_id: string): Promise<any> {
-    const response = await this._client.post(
-      "api/payment-gateway/v1/payments/check-transaction",
-      // Order matters here for hash generation
-      this.create_payload({ tran_id })
-    );
-    return response.data;
+  buildCheckTransactionPayload(tran_id: string): PayloadBuilderResponse {
+    const fields = this.create_payload({ tran_id });
+
+    return {
+      fields,
+      hash: fields.hash,
+      url: `${this.base_url}api/payment-gateway/v1/payments/check-transaction`,
+      method: "POST",
+    };
   }
 
   /**
-   * Retrieves a list of transactions based on filters
+   * Builds a transaction list payload
+   * 
+   * Use this for server-to-server API calls to retrieve transaction lists.
+   * 
    * @param params - Filter parameters
-   * @returns API response data with transaction list
+   * @returns Payload with fields, hash, and URL
+   * 
+   * @example
+   * ```typescript
+   * const payload = client.buildTransactionListPayload({
+   *   from_date: "20240101000000",
+   *   to_date: "20240131235959",
+   *   status: "APPROVED"
+   * });
+   * 
+   * // Make server-to-server request
+   * const formData = new FormData();
+   * for (const [key, value] of Object.entries(payload.fields)) {
+   *   formData.append(key, value);
+   * }
+   * 
+   * const response = await fetch(payload.url, {
+   *   method: payload.method,
+   *   body: formData
+   * });
+   * const result = await response.json();
+   * ```
    */
-  async transaction_list(params: TransactionListParams = {}): Promise<any> {
+  buildTransactionListPayload(params: TransactionListParams = {}): PayloadBuilderResponse {
     const { from_date, to_date, from_amount, to_amount, status } = params;
 
-    const response = await this._client.post(
-      "api/payment-gateway/v1/payments/transaction-list",
-      this.create_payload({
-        from_date,
-        to_date,
-        from_amount,
-        to_amount,
-        status,
-      })
-    );
-    return response.data;
+    const fields = this.create_payload({
+      from_date,
+      to_date,
+      from_amount,
+      to_amount,
+      status,
+    });
+
+    return {
+      fields,
+      hash: fields.hash,
+      url: `${this.base_url}api/payment-gateway/v1/payments/transaction-list`,
+      method: "POST",
+    };
+  }
+
+  /**
+   * Execute a server-to-server API call
+   * 
+   * This method takes a payload and makes the HTTP request for you.
+   * Useful for server-to-server calls like check_transaction and transaction_list.
+   * 
+   * WARNING: For create_transaction with payment_option "abapay", use client-side
+   * form submission instead, as it returns HTML. This method will throw an error
+   * if you try to execute with payment_option "abapay" (unless allowHtml is true).
+   * 
+   * @param payload - Payload from any build method
+   * @param options - Execution options
+   * @returns JSON response from ABA PayWay API
+   * 
+   * @throws Error if payment_option is "abapay" and allowHtml is false
+   * @throws Error if response is HTML and allowHtml is false
+   * @throws Error if HTTP request fails
+   * 
+   * @example
+   * ```typescript
+   * // Check transaction status (always server-to-server)
+   * const result = await client.execute(
+   *   client.buildCheckTransactionPayload("ORDER-123")
+   * );
+   * console.log('Status:', result.status);
+   * 
+   * // Create transaction with cards (server-to-server)
+   * const result = await client.execute(
+   *   client.buildTransactionPayload({
+   *     payment_option: 'cards',
+   *     amount: 100,
+   *     tran_id: 'ORDER-123'
+   *   })
+   * );
+   * 
+   * // Get transaction list
+   * const transactions = await client.execute(
+   *   client.buildTransactionListPayload({ status: 'APPROVED' })
+   * );
+   * ```
+   */
+  async execute(
+    payload: PayloadBuilderResponse,
+    options: ExecuteOptions = {}
+  ): Promise<any> {
+    const { allowHtml = false } = options;
+
+    // Validation: Prevent accidental abapay server-to-server calls
+    if (payload.fields.payment_option === 'abapay' && !allowHtml) {
+      throw new Error(
+        'Cannot execute server-to-server call with payment_option "abapay". ' +
+        'ABA PayWay returns HTML for abapay which should be displayed via client-side form submission. ' +
+        'Use buildTransactionPayload() and create a form in the browser instead. ' +
+        'If you really need to get the HTML on the server, pass { allowHtml: true }.'
+      );
+    }
+
+    // Build FormData from fields
+    const formData = new FormData();
+    for (const [key, value] of Object.entries(payload.fields)) {
+      formData.append(key, value);
+    }
+
+    // Make request to ABA PayWay
+    const response = await fetch(payload.url, {
+      method: payload.method,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    // Parse response based on Content-Type
+    const contentType = response.headers.get('content-type') || '';
+    
+    if (contentType.includes('application/json')) {
+      // Expected: JSON response
+      return await response.json();
+    } else if (contentType.includes('text/html')) {
+      // HTML response (likely abapay or error page)
+      if (!allowHtml) {
+        throw new Error(
+          'Received HTML response but expected JSON. ' +
+          'This usually means payment_option "abapay" was used, which returns an HTML checkout page. ' +
+          'Use client-side form submission for abapay payments. ' +
+          'If you intentionally want the HTML, pass { allowHtml: true }.'
+        );
+      }
+      return await response.text();
+    } else {
+      // Unknown content type - try JSON first, then text
+      try {
+        return await response.json();
+      } catch {
+        if (!allowHtml) {
+          throw new Error(
+            `Unexpected content-type: ${contentType}. ` +
+            'Response is not JSON and allowHtml is false.'
+          );
+        }
+        return await response.text();
+      }
+    }
   }
 }

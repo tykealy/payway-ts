@@ -17,6 +17,11 @@ export type PaymentOption =
   | "bakong"
   | string & {}
 
+export type ViewType =
+  | "hosted_view"  // Redirect payer to a new tab
+  | "popup"        // Display as bottom sheet on mobile, modal on desktop
+  | string & {}
+
 export interface CreateTransactionParams {
   tran_id?: string;
   payment_option?: PaymentOption;
@@ -30,6 +35,15 @@ export interface CreateTransactionParams {
   lastname?: string;
   email?: string;
   phone?: string;
+  /**
+   * Defines the view type for the payment page
+   * - "hosted_view": Redirect payer to a new tab
+   * - "popup": Display as a bottom sheet on mobile web browsers and as a modal popup on desktop web browsers
+   * 
+   * Note: This field is NOT included in the hash signature
+   */
+  view_type?: ViewType;
+  type?: "purchase" | "pre-auth" | "capture" | "refund" | "void" | "check-transaction" | "transaction-list";
 }
 
 export interface CheckTransactionParams {
@@ -44,10 +58,44 @@ export interface TransactionListParams {
   status?: TransactionStatus;
 }
 
-export interface ClientFactory {
-  (thisRef: any): any;
+/**
+ * Response from payload builder methods
+ * Contains all fields needed to submit a form to PayWay API
+ */
+export interface PayloadBuilderResponse {
+  /**
+   * All form fields including hash (ready to iterate and create form inputs)
+   */
+  fields: Record<string, string>;
+  
+  /**
+   * The HMAC-SHA512 hash signature (also included in fields)
+   */
+  hash: string;
+  
+  /**
+   * Full URL to submit the form to
+   */
+  url: string;
+  
+  /**
+   * HTTP method (always "POST" for PayWay)
+   */
+  method: "POST";
 }
 
-export interface HttpClient {
-  post(url: string, data: any): Promise<{ data: any }>;
+/**
+ * Options for executing server-to-server API calls
+ */
+export interface ExecuteOptions {
+  /**
+   * Allow HTML responses (default: false)
+   * 
+   * Set to true if you intentionally want to receive HTML responses.
+   * Normally, server-to-server calls should only receive JSON.
+   * 
+   * WARNING: Using payment_option "abapay" returns HTML and should use
+   * client-side form submission instead of server-to-server execution.
+   */
+  allowHtml?: boolean;
 }
