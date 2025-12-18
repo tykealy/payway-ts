@@ -1,7 +1,7 @@
 {
   "name": "payway-ts",
   "version": "0.1.0",
-  "description": "A non-official TypeScript SDK for ABA PayWay - Server-side only",
+  "description": "A non-official TypeScript SDK for ABA PayWay",
   "license": "MIT",
   "author": "tykealy",
   "type": "module",

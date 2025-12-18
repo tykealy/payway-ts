@@ -443,14 +443,16 @@ describe('PayWayClient', () => {
     it('should throw error on HTTP error status', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: false,
-        status: 500
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: new Headers()
       }) as any;
 
       const client = new PayWayClient("http://example.com", "1", "1");
       const payload = client.buildCheckTransactionPayload('ORDER-789');
 
       await expect(client.execute(payload)).rejects.toThrow(
-        'HTTP error! status: 500'
+        'PayWay API Error: 500 Internal Server Error'
       );
     });
 

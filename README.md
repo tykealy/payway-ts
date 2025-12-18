@@ -13,6 +13,19 @@ An unofficial, type-safe TypeScript SDK for ABA PayWay payment integration. This
 > [!WARNING]  
 > This is not a product of ABA Bank. This is an unofficial implementation based on https://www.payway.com.kh/developers/
 
+## Credits
+
+This package is built upon and inspired by the excellent work of **[Seanghay Yath](https://github.com/seanghay)** and the original [payway-js](https://github.com/seanghay/payway-js) package. We've extended it with:
+
+- ✅ Full TypeScript support with comprehensive type definitions
+- ✅ **Pre-Authorization transactions** (complete, cancel, with payout)
+- ✅ **RSA encryption** for sensitive operations
+- ✅ Dual integration patterns (payload builder + execute)
+- ✅ Enhanced error handling with detailed API responses
+- ✅ Extensive documentation and examples
+
+Special thanks to the original contributors for laying the foundation!
+
 ## Two Integration Patterns
 
 ### Pattern 1: Client-Side Form Submission (for `abapay`)
@@ -57,11 +70,20 @@ Different payment flows require different approaches:
 
 ## Features
 
-- ✅ **Dual Integration Modes** - Client-side form submission OR server-to-server API calls
-- ✅ **Full TypeScript Support** - Complete type definitions with autocomplete
+### Core Features (from original payway-js)
+- ✅ Create transactions
+- ✅ Check transaction status  
+- ✅ List transactions
+- ✅ HMAC-SHA512 request signing
+
+### New Features in payway-ts
+- ✨ **Full TypeScript Support** - Complete type definitions with autocomplete
+- ✨ **Pre-Authorization Transactions** - Complete, cancel, and payout support with RSA encryption
+- ✨ **Dual Integration Modes** - Client-side form submission OR server-to-server API calls
+- ✨ **Enhanced Error Handling** - Detailed API error responses with status codes and bodies
+- ✨ **RSA Encryption** - Secure data encryption for sensitive operations (117-byte chunking)
 - 🔒 **Server-Side Security** - Build payloads securely on your server (Node.js 18+)
 - 🚀 **ES Modules** - Native ESM support
-- 🔐 **HMAC-SHA512 Signing** - Automatic request signing with your API key
 - 📦 **Minimal Dependencies** - Only `date-fns` for date formatting
 - 🎯 **Next.js Ready** - Works seamlessly with Next.js API routes
 - ⚡ **Smart Validation** - Prevents common mistakes (e.g., using `abapay` with server-to-server)
@@ -1296,5 +1318,6 @@ For ABA PayWay API documentation and support, please contact ABA Bank directly o
 
 - [npm package](https://www.npmjs.com/package/payway-ts)
 - [GitHub repository](https://github.com/tykealy/payway-ts)
+- [Original payway-js package](https://github.com/seanghay/payway-js) by Seanghay Yath
 - [ABA Bank](https://www.ababank.com/)
 - [PayWay Developer Docs](https://www.payway.com.kh/developers/)
