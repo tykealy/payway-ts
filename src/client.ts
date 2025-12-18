@@ -1,11 +1,14 @@
 import { format } from "date-fns";
-import { createHmac } from "node:crypto";
+import { createHmac, publicEncrypt, constants } from "node:crypto";
 import { trim } from "./utils.js";
 import type {
   CreateTransactionParams,
   TransactionListParams,
   PayloadBuilderResponse,
   ExecuteOptions,
+  CompletePreAuthParams,
+  CompletePreAuthWithPayoutParams,
+  CancelPreAuthParams,
 } from "./types.js";
 
 /**
@@ -22,17 +25,20 @@ export class PayWayClient {
   public readonly base_url: string;
   public readonly merchant_id: string;
   public readonly api_key: string;
+  public readonly rsa_public_key?: string;
 
   /**
    * Creates a new PayWayClient instance
    * @param base_url - Base URL of the PayWay API (e.g., https://checkout-sandbox.payway.com.kh/)
    * @param merchant_id - Your merchant ID from ABA Bank
    * @param api_key - Your API key from ABA Bank
+   * @param rsa_public_key - Optional RSA public key from ABA Bank (required for pre-auth operations)
    */
-  constructor(base_url: string, merchant_id: string, api_key: string) {
+  constructor(base_url: string, merchant_id: string, api_key: string, rsa_public_key?: string) {
     this.base_url = base_url;
     this.merchant_id = merchant_id;
     this.api_key = api_key;
+    this.rsa_public_key = rsa_public_key;
   }
 
   /**
@@ -43,6 +49,54 @@ export class PayWayClient {
   create_hash(values: string[]): string {
     const data = values.join("");
     return createHmac("sha512", this.api_key).update(data).digest("base64");
+  }
+
+  /**
+   * Encrypts data with RSA public key in 117-byte chunks
+   * 
+   * Used for pre-auth operations where sensitive data (mc_id, tran_id, complete_amount)
+   * must be encrypted using ABA Bank's RSA public key.
+   * 
+   * @param data - Object to encrypt (will be JSON encoded)
+   * @returns Base64 encoded encrypted data
+   * @throws Error if RSA public key is not configured
+   * @private
+   */
+  private encryptWithRSA(data: Record<string, any>): string {
+    if (!this.rsa_public_key) {
+      throw new Error(
+        "RSA public key is required for pre-auth operations. " +
+        "Please provide it when initializing PayWayClient: " +
+        "new PayWayClient(base_url, merchant_id, api_key, rsa_public_key)"
+      );
+    }
+
+    // Step 1: JSON encode the data
+    const jsonData = JSON.stringify(data);
+    
+    // Step 2: Split into 117-byte chunks and encrypt each
+    // RSA with PKCS1 padding (1024-bit key) allows max 117 bytes per chunk
+    const maxChunkSize = 117;
+    let encryptedOutput = Buffer.alloc(0);
+    
+    for (let i = 0; i < jsonData.length; i += maxChunkSize) {
+      const chunk = jsonData.slice(i, i + maxChunkSize);
+      
+      // Encrypt the chunk using ABA's public key
+      const encryptedChunk = publicEncrypt(
+        {
+          key: this.rsa_public_key,
+          padding: constants.RSA_PKCS1_PADDING,
+        },
+        Buffer.from(chunk, 'utf8')
+      );
+      
+      // Concatenate encrypted chunks
+      encryptedOutput = Buffer.concat([encryptedOutput, encryptedChunk]);
+    }
+    
+    // Step 3: Base64 encode the concatenated encrypted output
+    return encryptedOutput.toString('base64');
   }
 
   /**
@@ -312,6 +366,185 @@ export class PayWayClient {
   }
 
   /**
+   * Builds a complete pre-auth transaction payload
+   * 
+   * Use this to capture funds from a pre-authorized transaction.
+   * The pre-auth must be in valid state (not expired or already completed).
+   * 
+   * For card payments: You can complete with up to 10% more than the original amount.
+   * 
+   * @param params - Complete pre-auth parameters
+   * @returns Payload with fields, hash, and URL
+   * 
+   * @example
+   * ```typescript
+   * // Complete with the authorized amount
+   * const payload = client.buildCompletePreAuthPayload({
+   *   tran_id: "ORDER-123",
+   *   complete_amount: 100  // Required
+   * });
+   * 
+   * // Complete with increased amount (+10% allowed for cards)
+   * const payload = client.buildCompletePreAuthPayload({
+   *   tran_id: "ORDER-123",
+   *   complete_amount: 110  // Original was 100, can add up to 10%
+   * });
+   * 
+   * // Execute the completion
+   * const result = await client.execute(payload);
+   * console.log('Status:', result.transaction_status); // "COMPLETED"
+   * ```
+   */
+  buildCompletePreAuthPayload(params: CompletePreAuthParams): PayloadBuilderResponse {
+    const { tran_id, complete_amount } = params;
+    
+    // Prepare data to be encrypted
+    const dataToEncrypt = {
+      mc_id: this.merchant_id,
+      tran_id: tran_id,
+      complete_amount: complete_amount,
+    };
+    
+    // Encrypt the data with RSA public key
+    const merchant_auth = this.encryptWithRSA(dataToEncrypt);
+    
+    // Create request time
+    const request_time = format(new Date(), "yyyyMMddHHmmss");
+    
+    // Create HMAC hash: merchant_auth + request_time + merchant_id
+    const hash = this.create_hash([merchant_auth, request_time, this.merchant_id]);
+    
+    // Build fields
+    const fields: Record<string, string> = {
+      merchant_auth,
+      request_time,
+      merchant_id: this.merchant_id,
+      hash,
+    };
+    
+    return {
+      fields,
+      hash,
+      url: `${this.base_url}api/merchant-portal/merchant-access/online-transaction/pre-auth-completion`,
+      method: "POST",
+    };
+  }
+
+  /**
+   * Builds a complete pre-auth transaction with payout payload
+   * 
+   * Use this to capture funds and distribute them according to payout rules.
+   * Useful for marketplace scenarios where funds need to be split.
+   * 
+   * @param params - Complete pre-auth with payout parameters
+   * @returns Payload with fields, hash, and URL
+   * 
+   * @example
+   * ```typescript
+   * const payload = client.buildCompletePreAuthWithPayoutPayload({
+   *   tran_id: "ORDER-123",
+   *   complete_amount: 100,
+   *   payout: JSON.stringify({
+   *     beneficiaries: [
+   *       { account: "123456", amount: 80 },
+   *       { account: "789012", amount: 20 }
+   *     ]
+   *   })
+   * });
+   * 
+   * const result = await client.execute(payload);
+   * ```
+   */
+  buildCompletePreAuthWithPayoutPayload(params: CompletePreAuthWithPayoutParams): PayloadBuilderResponse {
+    const { tran_id, complete_amount, payout } = params;
+    
+    // Prepare data to be encrypted
+    const dataToEncrypt = {
+      mc_id: this.merchant_id,
+      tran_id: tran_id,
+      complete_amount: complete_amount,
+      payout: payout,
+    };
+    
+    // Encrypt the data with RSA public key
+    const merchant_auth = this.encryptWithRSA(dataToEncrypt);
+    
+    // Create request time
+    const request_time = format(new Date(), "yyyyMMddHHmmss");
+    
+    // Create HMAC hash: merchant_auth + request_time + merchant_id
+    const hash = this.create_hash([merchant_auth, request_time, this.merchant_id]);
+    
+    // Build fields
+    const fields: Record<string, string> = {
+      merchant_auth,
+      request_time,
+      merchant_id: this.merchant_id,
+      hash,
+    };
+    
+    return {
+      fields,
+      hash,
+      url: `${this.base_url}api/merchant-portal/merchant-access/online-transaction/pre-auth-completion-with-payout`,
+      method: "POST",
+    };
+  }
+
+  /**
+   * Builds a cancel pre-auth transaction payload
+   * 
+   * Use this to release reserved funds from a pre-authorized transaction.
+   * The pre-auth must be in valid state (not expired or already completed/cancelled).
+   * 
+   * @param params - Cancel pre-auth parameters
+   * @returns Payload with fields, hash, and URL
+   * 
+   * @example
+   * ```typescript
+   * const payload = client.buildCancelPreAuthPayload({
+   *   tran_id: "ORDER-123"
+   * });
+   * 
+   * const result = await client.execute(payload);
+   * console.log('Status:', result.transaction_status); // "CANCELLED"
+   * ```
+   */
+  buildCancelPreAuthPayload(params: CancelPreAuthParams): PayloadBuilderResponse {
+    const { tran_id } = params;
+    
+    // Prepare data to be encrypted
+    const dataToEncrypt = {
+      mc_id: this.merchant_id,
+      tran_id: tran_id,
+    };
+    
+    // Encrypt the data with RSA public key
+    const merchant_auth = this.encryptWithRSA(dataToEncrypt);
+    
+    // Create request time
+    const request_time = format(new Date(), "yyyyMMddHHmmss");
+    
+    // Create HMAC hash: merchant_auth + request_time + merchant_id
+    const hash = this.create_hash([merchant_auth, request_time, this.merchant_id]);
+    
+    // Build fields
+    const fields: Record<string, string> = {
+      merchant_auth,
+      request_time,
+      merchant_id: this.merchant_id,
+      hash,
+    };
+    
+    return {
+      fields,
+      hash,
+      url: `${this.base_url}api/merchant-portal/merchant-access/online-transaction/pre-auth-cancellation`,
+      method: "POST",
+    };
+  }
+
+  /**
    * Execute a server-to-server API call
    *
    * This method takes a payload and makes the HTTP request for you.
@@ -325,9 +558,9 @@ export class PayWayClient {
    * @param options - Execution options
    * @returns JSON response from ABA PayWay API
    *
-   * @throws Error if payment_option is "abapay" and allowHtml is false
-   * @throws Error if response is HTML and allowHtml is false
-   * @throws Error if HTTP request fails
+   * @throws {PayWayAPIError} If HTTP request fails - includes status, statusText, and response body
+   * @throws {Error} If payment_option is "abapay" and allowHtml is false
+   * @throws {Error} If response is HTML and allowHtml is false
    *
    * @example
    * ```typescript
@@ -337,14 +570,19 @@ export class PayWayClient {
    * );
    * console.log('Status:', result.status);
    *
-   * // Create transaction with cards (server-to-server)
-   * const result = await client.execute(
-   *   client.buildTransactionPayload({
-   *     payment_option: 'cards',
-   *     amount: 100,
-   *     tran_id: 'ORDER-123'
-   *   })
-   * );
+   * // With error handling
+   * try {
+   *   const result = await client.execute(
+   *     client.buildCompletePreAuthPayload({
+   *       tran_id: 'ORDER-123',
+   *       complete_amount: 100
+   *     })
+   *   );
+   * } catch (error: any) {
+   *   console.error('Error:', error.message);
+   *   console.error('Status:', error.status);
+   *   console.error('Details:', error.body);
+   * }
    *
    * // Get transaction list
    * const transactions = await client.execute(
@@ -381,7 +619,28 @@ export class PayWayClient {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      // Try to get error details from response body
+      let errorBody: any;
+      try {
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          errorBody = await response.json();
+        } else {
+          errorBody = await response.text();
+        }
+      } catch {
+        errorBody = null;
+      }
+
+      // Create detailed error message
+      const error: any = new Error(
+        `PayWay API Error: ${response.status} ${response.statusText}`
+      );
+      error.status = response.status;
+      error.statusText = response.statusText;
+      error.body = errorBody;
+      
+      throw error;
     }
 
     // Parse response based on Content-Type

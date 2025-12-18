@@ -111,3 +111,112 @@ export interface ExecuteOptions {
    */
   allowHtml?: boolean;
 }
+
+/**
+ * Error thrown when PayWay API request fails
+ * 
+ * Contains detailed information about the error including
+ * HTTP status code and response body from ABA PayWay
+ */
+export interface PayWayAPIError extends Error {
+  /**
+   * HTTP status code (e.g., 403, 500)
+   */
+  status: number;
+  
+  /**
+   * HTTP status text (e.g., "Forbidden", "Internal Server Error")
+   */
+  statusText: string;
+  
+  /**
+   * Response body from ABA PayWay API
+   * Can be JSON object with error details or plain text
+   */
+  body: any;
+}
+
+/**
+ * Parameters for completing a pre-auth transaction
+ */
+export interface CompletePreAuthParams {
+  /**
+   * Transaction ID of the pre-authorized transaction
+   */
+  tran_id: string;
+  
+  /**
+   * Amount to complete (required)
+   * For card payments: can be up to 10% more than original amount
+   */
+  complete_amount: number | string;
+}
+
+/**
+ * Parameters for completing a pre-auth transaction with payout
+ */
+export interface CompletePreAuthWithPayoutParams {
+  /**
+   * Transaction ID of the pre-authorized transaction
+   */
+  tran_id: string;
+  
+  /**
+   * Amount to complete (required)
+   * For card payments: can be up to 10% more than original amount
+   */
+  complete_amount: number | string;
+  
+  /**
+   * Payout details as JSON string
+   * Should contain beneficiary and payout information
+   */
+  payout: string;
+}
+
+/**
+ * Parameters for canceling a pre-auth transaction
+ */
+export interface CancelPreAuthParams {
+  /**
+   * Transaction ID of the pre-authorized transaction to cancel
+   */
+  tran_id: string;
+}
+
+/**
+ * Response from pre-auth operations (complete or cancel)
+ */
+export interface PreAuthResponse {
+  /**
+   * Final transaction amount (for completed transactions)
+   */
+  grand_total?: number;
+  
+  /**
+   * Currency code
+   */
+  currency?: string;
+  
+  /**
+   * Transaction status after the operation
+   * - "COMPLETED" for successful completion
+   * - "CANCELLED" for successful cancellation
+   */
+  transaction_status: "COMPLETED" | "CANCELLED" | string;
+  
+  /**
+   * Operation status details
+   */
+  status: {
+    /**
+     * Status code (e.g., "00" for success)
+     */
+    code: string;
+    
+    /**
+     * Human-readable status message
+     */
+    message: string;
+  };
+}

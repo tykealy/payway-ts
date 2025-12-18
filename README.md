@@ -243,6 +243,257 @@ const transactions = await client.execute(
 console.log('Transactions:', transactions);
 ```
 
+### Pre-Authorization Transactions
+
+Pre-authorization is a **two-step payment process** that allows you to reserve funds first, then capture them later.
+
+#### How Pre-Auth Works
+
+```mermaid
+sequenceDiagram
+    participant Customer
+    participant Merchant as Your Server
+    participant PayWay as ABA PayWay
+    participant Bank as Customer's Bank
+    
+    Note over Merchant,PayWay: Step 1: Reserve Funds
+    Merchant->>PayWay: Create transaction (type: "pre-auth")
+    PayWay->>Bank: Request authorization
+    Bank->>Bank: Reserve $100
+    Bank-->>PayWay: Authorized
+    PayWay-->>Merchant: Status: "PRE-AUTH"
+    
+    Note over Merchant,PayWay: Step 2: Capture Funds (later)
+    Merchant->>PayWay: Complete pre-auth
+    PayWay->>Bank: Capture reserved funds
+    Bank->>Bank: Transfer $100
+    Bank-->>PayWay: Completed
+    PayWay-->>Merchant: Status: "COMPLETED"
+```
+
+**Common Use Cases:**
+- 🏨 **Hotels** - Reserve on booking, charge at checkout
+- 🚗 **Car Rentals** - Reserve deposit, charge final amount with extras
+- 🍽️ **Restaurants** - Reserve amount, add tip later
+- 🛒 **Marketplaces** - Verify funds, capture after fulfillment
+
+#### Security: RSA Encryption Required
+
+Pre-auth operations require **ABA Bank's RSA public key** for encryption:
+
+```typescript
+const client = new PayWayClient(
+  process.env.PAYWAY_BASE_URL!,
+  process.env.PAYWAY_MERCHANT_ID!,
+  process.env.PAYWAY_API_KEY!,
+  process.env.ABA_RSA_PUBLIC_KEY!  // Required for pre-auth
+);
+```
+
+**Two-Layer Security:**
+1. **RSA Encryption** - Sensitive data encrypted with ABA's public key (only ABA can decrypt)
+2. **HMAC Signing** - Request integrity verified with your API key
+
+#### Step 1: Create Pre-Auth Transaction
+
+```typescript
+// Create a pre-authorization (reserve funds)
+const payload = client.buildTransactionPayload({
+  tran_id: 'ORDER-123',
+  amount: 100,
+  currency: 'USD',
+  payment_option: 'cards',
+  type: 'pre-auth',  // Important: Set type to pre-auth
+  return_url: 'https://yoursite.com/callback'
+});
+
+const result = await client.execute(payload);
+// Result: { transaction_status: "PRE-AUTH", ... }
+```
+
+#### Step 2a: Complete Pre-Auth (Capture Funds)
+
+```typescript
+// Complete with the authorized amount
+const result = await client.execute(
+  client.buildCompletePreAuthPayload({
+    tran_id: 'ORDER-123',
+    complete_amount: 100  // Required: the amount to capture
+  })
+);
+
+console.log(result.transaction_status); // "COMPLETED"
+console.log(result.grand_total);        // 100
+
+// Complete with increased amount (+10% allowed for card payments)
+const result = await client.execute(
+  client.buildCompletePreAuthPayload({
+    tran_id: 'ORDER-123',
+    complete_amount: 110  // Original was 100, can add up to 10%
+  })
+);
+```
+
+#### Step 2b: Complete Pre-Auth with Payout
+
+For marketplace scenarios where funds need to be split:
+
+```typescript
+const result = await client.execute(
+  client.buildCompletePreAuthWithPayoutPayload({
+    tran_id: 'ORDER-123',
+    complete_amount: 100,
+    payout: JSON.stringify({
+      beneficiaries: [
+        { account: '123456', amount: 80 },  // Vendor gets 80%
+        { account: '789012', amount: 20 }   // Platform fee 20%
+      ]
+    })
+  })
+);
+```
+
+#### Step 2c: Cancel Pre-Auth (Release Funds)
+
+If the transaction won't proceed, release the reserved funds:
+
+```typescript
+const result = await client.execute(
+  client.buildCancelPreAuthPayload({
+    tran_id: 'ORDER-123'
+  })
+);
+
+console.log(result.transaction_status); // "CANCELLED"
+```
+
+#### Pre-Auth Rules & Limitations
+
+| Rule | Description |
+|------|-------------|
+| ✅ **One-time completion** | Can only complete pre-auth once |
+| ⏰ **Expiration** | Pre-auth expires after a certain period |
+| 💳 **+10% for cards** | Card payments can complete with up to 10% more |
+| ❌ **No double completion** | Cannot complete already completed/cancelled pre-auth |
+
+#### Multi-Merchant System Example
+
+If you're building a system where multiple merchants can configure their own payment methods:
+
+```typescript
+// Database schema example
+interface PaymentMethod {
+  id: string;
+  merchant_id: string;              // ABA merchant ID (plain text)
+  api_key: string;                  // ENCRYPT with AES-256 in database
+  aba_rsa_public_key: string;       // ABA's public key (plain text OK)
+  base_url: string;                 // Sandbox or production URL
+  created_by_admin_id: string;
+}
+
+// Fetch merchant credentials from database
+async function processPreAuthCompletion(merchantId: string, tranId: string) {
+  // Get credentials from database
+  const credentials = await db.getPaymentMethod(merchantId);
+  
+  // Initialize client with merchant's keys
+  const client = new PayWayClient(
+    credentials.base_url,
+    credentials.merchant_id,
+    decrypt(credentials.api_key),       // Decrypt API key from database
+    credentials.aba_rsa_public_key      // Public key - no decryption needed
+  );
+  
+  // Complete the pre-auth
+  const result = await client.execute(
+    client.buildCompletePreAuthPayload({ tran_id: tranId })
+  );
+  
+  return result;
+}
+```
+
+**Security Best Practices for Database Storage:**
+
+| Credential | Storage Method | Reason |
+|------------|----------------|--------|
+| `merchant_id` | Plain text | Not sensitive |
+| `api_key` | **Encrypt with AES-256** | Secret key, must be protected |
+| `aba_rsa_public_key` | Plain text | It's a public key by design |
+| `base_url` | Plain text | Not sensitive |
+
+```typescript
+// Example: Storing credentials securely
+import { encrypt, decrypt } from './crypto'; // Your encryption utility
+
+async function savePaymentMethod(data: {
+  merchant_id: string;
+  api_key: string;
+  aba_rsa_public_key: string;
+}) {
+  await db.insert('payment_methods', {
+    merchant_id: data.merchant_id,
+    api_key: encrypt(data.api_key),           // Encrypt before storing
+    aba_rsa_public_key: data.aba_rsa_public_key, // Store as-is
+    base_url: process.env.PAYWAY_BASE_URL
+  });
+}
+```
+
+#### Error Handling
+
+The SDK now provides detailed error information including HTTP status codes and response bodies from ABA PayWay:
+
+```typescript
+import type { PayWayAPIError } from 'payway-ts';
+
+try {
+  const result = await client.execute(
+    client.buildCompletePreAuthPayload({
+      tran_id: 'ORDER-123',
+      complete_amount: 100
+    })
+  );
+  
+  if (result.status.code === '00') {
+    console.log('✅ Pre-auth completed successfully');
+  }
+} catch (error: any) {
+  // Check if it's an API error with detailed information
+  if (error.status) {
+    console.error('❌ PayWay API Error');
+    console.error('Status:', error.status, error.statusText);
+    console.error('Response:', error.body);
+    
+    // Handle specific error codes
+    if (error.status === 403) {
+      console.error('Access forbidden - check credentials or merchant permissions');
+    } else if (error.status === 400) {
+      console.error('Bad request - check payload parameters');
+    } else if (error.status === 500) {
+      console.error('Server error - try again later');
+    }
+  } else if (error.message.includes('RSA public key is required')) {
+    console.error('❌ Missing RSA public key - check client initialization');
+  } else {
+    console.error('❌ Unexpected error:', error.message);
+  }
+}
+```
+
+**Error Object Structure:**
+
+When an API call fails, the error object contains:
+
+```typescript
+{
+  message: string;        // Error message
+  status: number;         // HTTP status code (403, 400, 500, etc.)
+  statusText: string;     // HTTP status text ("Forbidden", etc.)
+  body: any;              // Response body from ABA PayWay (JSON or text)
+}
+```
+
 #### Why Not `abapay`?
 
 The `execute()` method will throw an error if you try to use it with `payment_option: 'abapay'`:
@@ -293,6 +544,9 @@ const client = new PayWayClient(
 | `buildTransactionPayload()` | Build payment payload | `PayloadBuilderResponse` | Create payments |
 | `buildCheckTransactionPayload()` | Build status check payload | `PayloadBuilderResponse` | Check status |
 | `buildTransactionListPayload()` | Build transaction list payload | `PayloadBuilderResponse` | List transactions |
+| `buildCompletePreAuthPayload()` | Build complete pre-auth payload | `PayloadBuilderResponse` | Capture pre-auth funds |
+| `buildCompletePreAuthWithPayoutPayload()` | Build complete pre-auth with payout | `PayloadBuilderResponse` | Capture & distribute funds |
+| `buildCancelPreAuthPayload()` | Build cancel pre-auth payload | `PayloadBuilderResponse` | Release pre-auth funds |
 | `execute()` | Execute a payload (server-to-server) | `Promise<any>` | Server API calls |
 | `create_hash()` | Generate HMAC-SHA512 hash | `string` | Manual signing |
 
@@ -453,7 +707,102 @@ const transactions = await client.execute(payload);
 
 ---
 
-#### 4. execute()
+#### 4. buildCompletePreAuthPayload()
+
+Build a payload to complete (capture) a pre-authorized transaction.
+
+```typescript
+const payload = client.buildCompletePreAuthPayload({
+  tran_id: "ORDER-123",
+  complete_amount: 110  // Required: amount to capture
+});
+
+// Execute the completion
+const result = await client.execute(payload);
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tran_id` | string | Yes | Transaction ID of the pre-auth |
+| `complete_amount` | number \| string | Yes | Amount to capture. Cards: can be up to +10% of original |
+
+**Requirements:**
+- RSA public key must be provided in constructor
+- Pre-auth must be in valid state (not expired/completed/cancelled)
+- Can only complete once
+
+**Returns:** `PayloadBuilderResponse`
+
+---
+
+#### 5. buildCompletePreAuthWithPayoutPayload()
+
+Build a payload to complete a pre-auth and distribute funds to multiple beneficiaries.
+
+```typescript
+const payload = client.buildCompletePreAuthWithPayoutPayload({
+  tran_id: "ORDER-123",
+  complete_amount: 100,
+  payout: JSON.stringify({
+    beneficiaries: [
+      { account: "123456", amount: 80 },
+      { account: "789012", amount: 20 }
+    ]
+  })
+});
+
+const result = await client.execute(payload);
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tran_id` | string | Yes | Transaction ID of the pre-auth |
+| `complete_amount` | number \| string | Yes | Amount to capture |
+| `payout` | string | Yes | JSON string with payout details |
+
+**Payout Format:**
+The `payout` parameter should be a JSON string containing beneficiary information. Contact ABA Bank for the exact schema.
+
+**Requirements:**
+- RSA public key must be provided in constructor
+- Pre-auth must be in valid state
+
+**Returns:** `PayloadBuilderResponse`
+
+---
+
+#### 6. buildCancelPreAuthPayload()
+
+Build a payload to cancel a pre-authorized transaction and release reserved funds.
+
+```typescript
+const payload = client.buildCancelPreAuthPayload({
+  tran_id: "ORDER-123"
+});
+
+const result = await client.execute(payload);
+console.log(result.transaction_status); // "CANCELLED"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tran_id` | string | Yes | Transaction ID of the pre-auth to cancel |
+
+**Requirements:**
+- RSA public key must be provided in constructor
+- Pre-auth must be in valid state (not expired/already cancelled/completed)
+
+**Returns:** `PayloadBuilderResponse`
+
+---
+
+#### 7. execute()
 
 Execute a payload with server-to-server HTTP request. This method makes the actual API call to ABA PayWay.
 
@@ -520,7 +869,7 @@ const html = await client.execute(
 
 ---
 
-#### 5. create_hash()
+#### 8. create_hash()
 
 Utility method to create HMAC-SHA512 hash (used internally).
 
@@ -791,14 +1140,20 @@ import type {
   PayloadBuilderResponse,
   TransactionStatus,
   PaymentOption,
-  ExecuteOptions  // New!
+  ExecuteOptions,
+  CompletePreAuthParams,           // Pre-auth types
+  CompletePreAuthWithPayoutParams,
+  CancelPreAuthParams,
+  PreAuthResponse,
+  PayWayAPIError                   // Error type
 } from 'payway-ts';
 
 const params: CreateTransactionParams = {
   amount: 100,
   tran_id: 'ORDER-123',
   currency: 'USD',
-  payment_option: 'abapay'
+  payment_option: 'abapay',
+  type: 'pre-auth'  // For pre-authorization
 };
 
 const payload: PayloadBuilderResponse = client.buildTransactionPayload(params);
@@ -808,9 +1163,18 @@ payload.fields.hash;   // ✓ string
 payload.url;           // ✓ string
 payload.method;        // ✓ "POST"
 
-// Execute with options
-const options: ExecuteOptions = { allowHtml: false };
-const result = await client.execute(payload, options);
+// Pre-auth operations with full type safety
+const preAuthParams: CompletePreAuthParams = {
+  tran_id: 'ORDER-123',
+  complete_amount: 110
+};
+
+const preAuthResult: PreAuthResponse = await client.execute(
+  client.buildCompletePreAuthPayload(preAuthParams)
+);
+
+preAuthResult.transaction_status;  // ✓ "COMPLETED" | "CANCELLED" | string
+preAuthResult.grand_total;         // ✓ number | undefined
 ```
 
 ## Utility Functions

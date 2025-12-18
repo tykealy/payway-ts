@@ -19,4 +19,9 @@ export type {
   TransactionListParams,
   PayloadBuilderResponse,
   ExecuteOptions,
+  CompletePreAuthParams,
+  CompletePreAuthWithPayoutParams,
+  CancelPreAuthParams,
+  PreAuthResponse,
+  PayWayAPIError,
 } from "./types.js";
