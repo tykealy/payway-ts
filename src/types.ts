@@ -9,12 +9,13 @@ export type TransactionStatus =
 
 export type PaymentOption =
   | "cards"
+  | "abapay_khqr"
   | "abapay"
   | "abapay_deeplink"
   | "abapay_khqr_deeplink"
   | "wechat"
   | "alipay"
-  | "bakong"
+  |"google_pay"
   | string & {}
 
 export type ViewType =
@@ -30,20 +31,23 @@ export interface CreateTransactionParams {
   return_url?: string;
   return_deeplink?: string | { android_scheme: string; ios_scheme: string };
   continue_success_url?: string;
-  pwt?: string;
   firstname?: string;
   lastname?: string;
   email?: string;
   phone?: string;
-  /**
-   * Defines the view type for the payment page
-   * - "hosted_view": Redirect payer to a new tab
-   * - "popup": Display as a bottom sheet on mobile web browsers and as a modal popup on desktop web browsers
-   * 
-   * Note: This field is NOT included in the hash signature
-   */
+  items?: string
+  shipping?: number
+  cancel_url?: string
+  skip_success_page?: number | boolean 
+  custom_fields?: string
+  return_params?: string
+  payment_gate?: number
+  payout?: string
+  additional_params?: string
+  lifetime?: number
+  google_play_token?: string
+  type?: "purchase" | "pre-auth",
   view_type?: ViewType;
-  type?: "purchase" | "pre-auth" | "capture" | "refund" | "void" | "check-transaction" | "transaction-list";
 }
 
 export interface CheckTransactionParams {
@@ -51,6 +55,14 @@ export interface CheckTransactionParams {
 }
 
 export interface TransactionListParams {
+  limit_additional_params?: string
+  limit_limit_amount?: number
+  limit_limit_currency?: string
+  limit_limit_payment_option?: PaymentOption
+  limit_limit_view_type?: ViewType
+  limit_limit_type?: "purchase" | "pre-auth"
+  limit_limit_firstname?: string
+  limit_limit_lastname?: string
   from_date?: string;
   to_date?: string;
   from_amount?: string | number;

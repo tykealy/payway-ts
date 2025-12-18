@@ -179,10 +179,6 @@ export default function PaymentButton() {
 }
 ```
 
-  );
-}
-```
-
 ### Pattern 2: Server-to-Server API Call
 
 **Best for:** All payment options except `abapay`, transaction checks, and transaction lists
