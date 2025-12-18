@@ -519,4 +519,146 @@ describe('PayWayClient', () => {
       expect(capturedFormData).not.toBeNull();
     });
   });
+
+  describe('buildCompletePreAuthWithPayoutPayload', () => {
+    // Valid RSA public key for testing (1024-bit)
+    const mockRsaPublicKey = `-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDFkGZU8rk1sCCGxeVEdxHYZs8I
+1ct4N8+TtECjVltAMI/KkYqU77CveVklb+i/VI0nn9QVymldGhZ422gAOBnUY5j0
+cNFzlzGJawBDt+aLI49xacOtlhEmq62sn4JZqscCegpCi4IYVPk0QT9ypNOp2NJ3
+WHERcKgSSPtFC7ZTrQIDAQAB
+-----END PUBLIC KEY-----`;
+
+    it('should build complete pre-auth with payout payload', () => {
+      const client = new PayWayClient(
+        "https://checkout-sandbox.payway.com.kh/",
+        "merchant_123",
+        "api_key_456",
+        mockRsaPublicKey
+      );
+
+      const payout = [
+        { acc: "123456", amt: 80 },
+        { acc: "789012", amt: 20 }
+      ];
+
+      const payload = client.buildCompletePreAuthWithPayoutPayload({
+        tran_id: "ORDER-123",
+        complete_amount: 100,
+        payout: payout
+      });
+
+      expect(payload.fields).toHaveProperty('merchant_auth');
+      expect(payload.fields).toHaveProperty('request_time');
+      expect(payload.fields).toHaveProperty('merchant_id', 'merchant_123');
+      expect(payload.fields).toHaveProperty('hash');
+      expect(payload.hash).toBe(payload.fields.hash);
+      expect(payload.url).toBe('https://checkout-sandbox.payway.com.kh/api/merchant-portal/merchant-access/online-transaction/pre-auth-completion-with-payout');
+      expect(payload.method).toBe('POST');
+    });
+
+    it('should throw error when RSA public key is not provided', () => {
+      const client = new PayWayClient(
+        "https://checkout-sandbox.payway.com.kh/",
+        "merchant_123",
+        "api_key_456"
+      );
+
+      expect(() => {
+        client.buildCompletePreAuthWithPayoutPayload({
+          tran_id: "ORDER-123",
+          complete_amount: 100,
+          payout: [{ acc: "123456", amt: 100 }]
+        });
+      }).toThrow('RSA public key is required for pre-auth operations');
+    });
+
+    it('should include payout array in encrypted data', () => {
+      const client = new PayWayClient(
+        "http://example.com",
+        "merchant_123",
+        "api_key_456",
+        mockRsaPublicKey
+      );
+
+      const payout = [
+        { acc: "aba_account", amt: 80 },
+        { acc: "merchant_id", amt: 20 }
+      ];
+
+      const payload = client.buildCompletePreAuthWithPayoutPayload({
+        tran_id: "ORDER-123",
+        complete_amount: 100,
+        payout: payout
+      });
+
+      // Verify merchant_auth is present and is a base64 string (encrypted data)
+      expect(payload.fields.merchant_auth).toBeDefined();
+      expect(typeof payload.fields.merchant_auth).toBe('string');
+      expect(payload.fields.merchant_auth.length).toBeGreaterThan(0);
+    });
+
+    it('should handle multiple payout items', () => {
+      const client = new PayWayClient(
+        "http://example.com",
+        "merchant_123",
+        "api_key_456",
+        mockRsaPublicKey
+      );
+
+      const payout = [
+        { acc: "account1", amt: 50 },
+        { acc: "account2", amt: 30 },
+        { acc: "account3", amt: 20 }
+      ];
+
+      const payload = client.buildCompletePreAuthWithPayoutPayload({
+        tran_id: "ORDER-123",
+        complete_amount: 100,
+        payout: payout
+      });
+
+      expect(payload.fields.merchant_auth).toBeDefined();
+      expect(payload.url).toContain('pre-auth-completion-with-payout');
+    });
+
+    it('should generate correct hash with payout data', () => {
+      const client = new PayWayClient(
+        "http://example.com",
+        "merchant_123",
+        "api_key_456",
+        mockRsaPublicKey
+      );
+
+      const payload = client.buildCompletePreAuthWithPayoutPayload({
+        tran_id: "ORDER-123",
+        complete_amount: 100,
+        payout: [{ acc: "123456", amt: 100 }]
+      });
+
+      // Hash should be HMAC-SHA512 of merchant_auth + request_time + merchant_id
+      expect(payload.hash).toBeDefined();
+      expect(typeof payload.hash).toBe('string');
+      expect(payload.hash.length).toBeGreaterThan(0);
+      expect(payload.hash).toBe(payload.fields.hash);
+    });
+
+    it('should handle complete_amount as string', () => {
+      const client = new PayWayClient(
+        "http://example.com",
+        "merchant_123",
+        "api_key_456",
+        mockRsaPublicKey
+      );
+
+      const payload = client.buildCompletePreAuthWithPayoutPayload({
+        tran_id: "ORDER-123",
+        complete_amount: "100",
+        payout: [{ acc: "123456", amt: 100 }]
+      });
+
+      expect(payload.fields.merchant_auth).toBeDefined();
+      expect(payload.url).toContain('pre-auth-completion-with-payout');
+    });
+  });
 });

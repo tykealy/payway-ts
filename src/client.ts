@@ -444,12 +444,10 @@ export class PayWayClient {
    * const payload = client.buildCompletePreAuthWithPayoutPayload({
    *   tran_id: "ORDER-123",
    *   complete_amount: 100,
-   *   payout: JSON.stringify({
-   *     beneficiaries: [
-   *       { account: "123456", amount: 80 },
-   *       { account: "789012", amount: 20 }
-   *     ]
-   *   })
+   *   payout: [
+   *     { acc: "123456", amt: 80 },
+   *     { acc: "789012", amt: 20 }
+   *   ]
    * });
    * 
    * const result = await client.execute(payload);

@@ -153,6 +153,21 @@ export interface CompletePreAuthParams {
 }
 
 /**
+ * Individual payout item for distributing funds
+ */
+export interface PayoutItem {
+  /**
+   * Account number to receive payout
+   */
+  acc: string;
+  
+  /**
+   * Amount to payout to this account
+   */
+  amt: number;
+}
+
+/**
  * Parameters for completing a pre-auth transaction with payout
  */
 export interface CompletePreAuthWithPayoutParams {
@@ -168,10 +183,10 @@ export interface CompletePreAuthWithPayoutParams {
   complete_amount: number | string;
   
   /**
-   * Payout details as JSON string
-   * Should contain beneficiary and payout information
+   * Payout array containing account and amount for each beneficiary
+   * Funds will be distributed according to this array
    */
-  payout: string;
+  payout: PayoutItem[];
 }
 
 /**

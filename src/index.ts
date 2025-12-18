@@ -20,6 +20,7 @@ export type {
   PayloadBuilderResponse,
   ExecuteOptions,
   CompletePreAuthParams,
+  PayoutItem,
   CompletePreAuthWithPayoutParams,
   CancelPreAuthParams,
   PreAuthResponse,
