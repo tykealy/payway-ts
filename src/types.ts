@@ -29,7 +29,7 @@ export interface CreateTransactionParams {
   amount?: number | string;
   currency?: "USD" | "KHR";
   return_url?: string;
-  return_deeplink?: string | { android_scheme: string; ios_scheme: string };
+  return_deeplink?: { android_scheme: string; ios_scheme: string };
   continue_success_url?: string;
   firstname?: string;
   lastname?: string;

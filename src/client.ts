@@ -214,7 +214,6 @@ export class PayWayClient {
     }
 
     let processedReturnUrl = return_url;
-    let processedReturnDeeplink = return_deeplink;
     let processedCancelUrl = cancel_url;
     let processedContinueSuccessUrl = continue_success_url;
     if (typeof continue_success_url === "string") {
@@ -228,12 +227,9 @@ export class PayWayClient {
     if (typeof return_url === "string") {
       processedReturnUrl = base64(return_url);
     }
-
-    if (typeof return_deeplink === "string") {
-      processedReturnDeeplink = base64(return_deeplink);
-    }
-
-    if (typeof return_deeplink === "object" && return_deeplink != null) {
+    let processedReturnDeeplink: string | undefined;
+    
+    if (return_deeplink != null) {
       processedReturnDeeplink = base64(JSON.stringify(return_deeplink));
     }
 

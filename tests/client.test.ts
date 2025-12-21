@@ -106,11 +106,11 @@ describe('PayWayClient', () => {
       
       const payload = client.buildTransactionPayload({
         tran_id: "TEST",
-        return_deeplink: "myapp://payment"
+        return_deeplink: { android_scheme: "myapp://android", ios_scheme: "myapp://ios" }
       });
 
       const decoded = Buffer.from(payload.fields.return_deeplink, 'base64').toString();
-      expect(decoded).toBe("myapp://payment");
+      expect(JSON.parse(decoded)).toEqual({ android_scheme: "myapp://android", ios_scheme: "myapp://ios" });
     });
 
     it('should base64 encode return_deeplink object', () => {
