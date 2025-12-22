@@ -7,6 +7,18 @@ export type TransactionStatus =
   | "REFUNDED"
   | string & {}
 
+
+export type ReturnType = {
+  status: {
+    code: string;
+    message: string;
+    tran_id: string;
+  };
+  qr_string: string;
+  abapay_deeplink: string;
+  checkout_qr_url: string;
+};
+
 export type PaymentOption =
   | "cards"
   | "abapay_khqr"

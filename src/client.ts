@@ -9,6 +9,7 @@ import type {
   CompletePreAuthParams,
   CompletePreAuthWithPayoutParams,
   CancelPreAuthParams,
+  ReturnType,
 } from "./types.js";
 
 /**
@@ -587,7 +588,7 @@ export class PayWayClient {
   async execute(
     payload: PayloadBuilderResponse,
     options: ExecuteOptions = {}
-  ): Promise<any> {
+  ): Promise<ReturnType | string> {
     const { allowHtml = false } = options;
 
     // Validation: Prevent accidental abapay server-to-server calls
@@ -642,7 +643,7 @@ export class PayWayClient {
 
     if (contentType.includes("application/json")) {
       // Expected: JSON response
-      return await response.json();
+      return await response.json() as ReturnType;
     } else if (contentType.includes("text/html")) {
       // HTML response (likely abapay or error page)
       if (!allowHtml) {
@@ -657,7 +658,7 @@ export class PayWayClient {
     } else {
       // Unknown content type - try JSON first, then text
       try {
-        return await response.json();
+        return await response.json() as ReturnType;
       } catch {
         if (!allowHtml) {
           throw new Error(
