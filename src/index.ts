@@ -25,4 +25,5 @@ export type {
   CancelPreAuthParams,
   PreAuthResponse,
   PayWayAPIError,
+  ReturnType
 } from "./types.js";
