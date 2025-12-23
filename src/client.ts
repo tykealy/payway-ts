@@ -10,6 +10,7 @@ import type {
   CompletePreAuthWithPayoutParams,
   CancelPreAuthParams,
   ReturnType,
+  PaywayPaymentStatusCheckResponse,
 } from "./types.js";
 
 /**
@@ -588,7 +589,7 @@ export class PayWayClient {
   async execute(
     payload: PayloadBuilderResponse,
     options: ExecuteOptions = {}
-  ): Promise<ReturnType | string> {
+  ): Promise<ReturnType | PaywayPaymentStatusCheckResponse | string> {
     const { allowHtml = false } = options;
 
     // Validation: Prevent accidental abapay server-to-server calls

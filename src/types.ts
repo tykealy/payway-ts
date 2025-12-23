@@ -19,6 +19,15 @@ export type ReturnType = {
   checkout_qr_url: string;
 };
 
+export interface PaywayPaymentStatusCheckResponse {
+  status: number;
+  description?: string;
+  amount: number;
+  total: number;
+  payment_status: number;
+  datetime: string;
+}
+
 export type PaymentOption =
   | "cards"
   | "abapay_khqr"
