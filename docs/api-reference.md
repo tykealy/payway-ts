@@ -714,7 +714,9 @@ The Payout API is the only PayWay endpoint that expects a hex digest — everyth
 | Endpoint group | Hash input | Encoding |
 |---|---|---|
 | Purchase, check, list | `req_time` + `merchant_id` + body values | base64 |
-| Pre-auth | `merchant_id` + `merchant_auth` + `request_time` | base64 |
+| Pre-auth completion | `merchant_auth` + `request_time` + `merchant_id` | base64 |
+| Pre-auth completion with payout | `merchant_auth` + `request_time` + `merchant_id` | base64 |
+| Pre-auth cancellation | `merchant_id` + `merchant_auth` + `request_time` | base64 |
 | Beneficiary whitelist | `request_time` + `merchant_auth` | base64 |
 | Payout | `merchant_id` + `tran_id` + `beneficiaries` + `amount` + `custom_fields` + `currency` | **hex** |
 

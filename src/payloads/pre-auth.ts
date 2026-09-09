@@ -12,7 +12,9 @@ import type {
  * Pre-authorization completion and cancellation payload builders.
  *
  * All three endpoints share one shape: sensitive data is RSA encrypted into
- * `merchant_auth`, and the hash covers `merchant_id + merchant_auth + request_time`.
+ * `merchant_auth`. The hash order is NOT shared — completion and cancellation
+ * concatenate the same three values differently, confirmed against the live
+ * API: sending either order to the other endpoint returns "Invalid hash".
  *
  * @packageDocumentation
  */
@@ -25,10 +27,13 @@ import type {
  * @param path - API path relative to base_url
  * @returns Payload with fields, hash, and URL
  */
+type PreAuthHashOrder = "completion" | "cancellation";
+
 function buildPreAuthPayload(
   config: PayWayConfig,
   dataToEncrypt: Record<string, any>,
   path: string,
+  hashOrder: PreAuthHashOrder,
 ): PayloadBuilderResponse {
   // Encrypt the data with RSA public key
   const merchant_auth = encryptWithRSA(config.rsa_public_key, dataToEncrypt);
@@ -36,12 +41,14 @@ function buildPreAuthPayload(
   // Create request time
   const request_time = formatRequestTime(new Date());
 
-  // Create HMAC hash: merchant_id + merchant_auth + request_time
-  const hash = createHash(config.api_key, [
-    config.merchant_id,
-    merchant_auth,
-    request_time,
-  ]);
+  // Completion and cancellation genuinely differ here; both orders are verified
+  // against the live API.
+  const hash = createHash(
+    config.api_key,
+    hashOrder === "cancellation"
+      ? [config.merchant_id, merchant_auth, request_time]
+      : [merchant_auth, request_time, config.merchant_id],
+  );
 
   // Build fields
   const fields: Record<string, string> = {
@@ -80,6 +87,7 @@ export function buildCompletePreAuthPayload(
       complete_amount: complete_amount,
     },
     "api/merchant-portal/merchant-access/online-transaction/pre-auth-completion",
+    "completion",
   );
 }
 
@@ -105,6 +113,7 @@ export function buildCompletePreAuthWithPayoutPayload(
       payout: payout,
     },
     "api/merchant-portal/merchant-access/online-transaction/pre-auth-completion-with-payout",
+    "completion",
   );
 }
 
@@ -128,5 +137,6 @@ export function buildCancelPreAuthPayload(
       tran_id: tran_id,
     },
     "api/merchant-portal/merchant-access/online-transaction/pre-auth-cancellation",
+    "cancellation",
   );
 }
