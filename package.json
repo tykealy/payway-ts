@@ -1,6 +1,6 @@
 {
   "name": "payway-ts",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Unofficial TypeScript SDK for ABA PayWay (ABA Bank Cambodia) — ABA PAY, KHQR, cards, pre-authorization and payout, with HMAC-SHA512 signing. ESM + CommonJS, zero dependencies.",
   "license": "MIT",
   "author": "tykealy",
